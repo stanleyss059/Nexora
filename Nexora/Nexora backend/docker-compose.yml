@@ -1,0 +1,113 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    container_name: nexora-postgres
+    environment:
+      POSTGRES_PASSWORD: rootpass
+      POSTGRES_DB: nexora
+      POSTGRES_USER: nexora
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - nexora-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexora"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
+  discovery-service:
+    build: ./discovery-service
+    container_name: nexora-discovery-service
+    ports:
+      - "8761:8761"
+    networks:
+      - nexora-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      
+  api-gateway:
+    build: ./api-gateway
+    container_name: nexora-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - EUREKA_SERVER_URL=http://discovery-service:8761/eureka/
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+    networks:
+      - nexora-network
+    restart: unless-stopped
+      
+  auth-service:
+    build: ./auth-service
+    container_name: nexora-auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/nexora
+      - SPRING_DATASOURCE_USERNAME=nexora
+      - SPRING_DATASOURCE_PASSWORD=rootpass
+      - JWT_SECRET=supersecretjwtkey123456789
+      - EUREKA_SERVER_URL=http://discovery-service:8761/eureka/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    networks:
+      - nexora-network
+    restart: unless-stopped
+      
+  user-service:
+    build: ./user-service
+    container_name: nexora-user-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/nexora
+      - SPRING_DATASOURCE_USERNAME=nexora
+      - SPRING_DATASOURCE_PASSWORD=rootpass
+      - JWT_SECRET=supersecretjwtkey123456789
+      - EUREKA_SERVER_URL=http://discovery-service:8761/eureka/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      discovery-service:
+        condition: service_healthy
+    networks:
+      - nexora-network
+    restart: unless-stopped
+      
+  email-service:
+    build: ./email-service
+    container_name: nexora-email-service
+    ports:
+      - "8083:8083"
+    environment:
+      - MAIL_HOST=smtp.gmail.com
+      - MAIL_PORT=587
+      - MAIL_USERNAME=your-email@gmail.com
+      - MAIL_PASSWORD=your-app-password
+      - EUREKA_SERVER_URL=http://discovery-service:8761/eureka/
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+    networks:
+      - nexora-network
+    restart: unless-stopped
+      
+volumes:
+  pg_data:
+
+networks:
+  nexora-network:
+    driver: bridge
